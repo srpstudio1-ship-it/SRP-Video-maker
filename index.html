@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Pro Text → Video Generator</title>
+
+<style>
+body{
+    font-family:Arial;
+    background:#0f172a;
+    color:white;
+    text-align:center;
+    padding:10px;
+}
+
+textarea{
+    width:95%;
+    height:120px;
+    padding:10px;
+    border-radius:10px;
+}
+
+select, input{
+    padding:8px;
+    margin:5px;
+    border-radius:8px;
+}
+
+button{
+    padding:10px 20px;
+    margin:10px;
+    border:none;
+    border-radius:10px;
+    background:#3b82f6;
+    color:white;
+    font-size:16px;
+}
+
+canvas{
+    width:100%;
+    max-width:400px;
+    background:black;
+    border-radius:10px;
+    margin-top:10px;
+}
+
+#progressBar{
+    width:90%;
+    height:10px;
+    background:#333;
+    margin:auto;
+    border-radius:10px;
+}
+
+#progress{
+    height:10px;
+    width:0%;
+    background:#3b82f6;
+    border-radius:10px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>🎬 Pro Text → Animated Video</h2>
+
+<textarea id="text" placeholder="Enter your script..."></textarea><br>
+
+<select id="quality">
+<option value="480">480p</option>
+<option value="720">720p</option>
+</select>
+
+<select id="color">
+<option value="white">White Text</option>
+<option value="yellow">Yellow</option>
+<option value="cyan">Cyan</option>
+</select>
+
+<input type="range" id="size" min="20" max="50" value="30">
+
+<div id="progressBar"><div id="progress"></div></div>
+<p id="status">Idle</p>
+
+<button onclick="startVideo()">Generate Video</button>
+<button onclick="downloadVideo()">Download</button>
+
+<canvas id="canvas"></canvas>
+
+<script>
+let canvas = document.getElementById("canvas");
+let ctx = canvas.getContext("2d");
+
+let mediaRecorder;
+let chunks = [];
+
+function setQuality(){
+    let q = document.getElementById("quality").value;
+    canvas.width = 480;
+    canvas.height = q;
+}
+setQuality();
+
+function updateProgress(p){
+    document.getElementById("progress").style.width = p + "%";
+}
+
+function speak(text){
+    return new Promise((resolve, reject)=>{
+        try{
+            let speech = new SpeechSynthesisUtterance(text);
+            speech.onend = resolve;
+            speech.onerror = reject;
+            speechSynthesis.speak(speech);
+        }catch(e){
+            reject(e);
+        }
+    });
+}
+
+function drawScene(text, progress){
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.fillStyle = document.getElementById("color").value;
+    ctx.font = document.getElementById("size").value + "px Arial";
+
+    let x = 30;
+    let y = canvas.height/2 + progress*50;
+
+    wrapText(text, x, y, canvas.width-60, 40);
+}
+
+function wrapText(text, x, y, maxWidth, lineHeight){
+    let words = text.split(" ");
+    let line = "";
+
+    for(let n=0;n<words.length;n++){
+        let testLine = line + words[n] + " ";
+        let metrics = ctx.measureText(testLine);
+        if(metrics.width > maxWidth && n>0){
+            ctx.fillText(line, x, y);
+            line = words[n] + " ";
+            y += lineHeight;
+        } else {
+            line = testLine;
+        }
+    }
+    ctx.fillText(line, x, y);
+}
+
+async function startVideo(){
+    try{
+        setQuality();
+        chunks = [];
+
+        let text = document.getElementById("text").value;
+        let scenes = text.split(".");
+        let total = scenes.length;
+
+        let stream = canvas.captureStream(30);
+
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+        mediaRecorder.start();
+
+        for(let i=0;i<scenes.length;i++){
+
+            let scene = scenes[i].trim();
+            if(!scene) continue;
+
+            document.getElementById("status").innerText =
+                "Processing scene " + (i+1) + "/" + total;
+
+            updateProgress((i/total)*100);
+
+            let speechPromise = speak(scene);
+
+            let start = Date.now();
+
+            while(Date.now() - start < 3000){
+                let progress = (Date.now()-start)/3000;
+                drawScene(scene, progress);
+                await new Promise(r=>setTimeout(r,30));
+            }
+
+            await speechPromise;
+        }
+
+        mediaRecorder.stop();
+
+        document.getElementById("status").innerText = "Done ✅";
+        updateProgress(100);
+
+    }catch(err){
+        alert("Error: " + err.message);
+    }
+}
+
+function downloadVideo(){
+    try{
+        mediaRecorder.onstop = ()=>{
+            let blob = new Blob(chunks,{type:"video/webm"});
+            let url = URL.createObjectURL(blob);
+
+            let a = document.createElement("a");
+            a.href = url;
+            a.download = "video.webm";
+            a.click();
+        }
+    }catch(e){
+        alert("Download error");
+    }
+}
+</script>
+
+</body>
+  </html>
