@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI Video Generator PRO</title>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 
@@ -14,86 +16,50 @@ body{
     color:white;
 }
 
-/* HEADER */
 .header{
     padding:15px;
     text-align:center;
-    font-size:22px;
-    font-weight:bold;
+    font-size:20px;
     background:#020617;
 }
 
-/* MAIN */
 .container{
     padding:15px;
 }
 
-/* TEXT INPUT */
 textarea{
     width:100%;
     height:120px;
     padding:10px;
     border-radius:10px;
     border:none;
-    margin-bottom:15px;
 }
 
-/* CONTROLS */
 .controls{
     display:grid;
     grid-template-columns:1fr 1fr;
     gap:10px;
-    margin-bottom:15px;
+    margin-top:10px;
 }
 
-.controls label{
-    font-size:14px;
-}
-
-.controls input{
-    width:100%;
-    padding:5px;
-    border-radius:8px;
+input,button{
+    padding:10px;
     border:none;
-}
-
-/* BUTTONS */
-.buttons{
-    display:flex;
-    gap:10px;
+    border-radius:8px;
 }
 
 button{
-    flex:1;
-    padding:12px;
-    border:none;
-    border-radius:10px;
     background:#3b82f6;
     color:white;
-    font-size:16px;
 }
 
-/* PROGRESS */
-#progress{
-    margin:10px 0;
-    font-size:14px;
-}
-
-/* CANVAS */
 canvas{
     width:100%;
     max-width:400px;
-    display:block;
     margin:15px auto;
-    border-radius:12px;
+    display:block;
     background:black;
-}
-
-/* MOBILE */
-@media(max-width:600px){
-    .controls{
-        grid-template-columns:1fr;
-    }
+    border-radius:10px;
 }
 </style>
 </head>
@@ -104,162 +70,188 @@ canvas{
 
 <div class="container">
 
-<textarea id="text" placeholder="Enter your script..."></textarea>
+<!-- LOGIN -->
+<input id="email" placeholder="Email">
+<input id="password" type="password" placeholder="Password">
+<button onclick="signup()">Sign Up</button>
+<button onclick="login()">Login</button>
+
+<textarea id="text" placeholder="Enter script..."></textarea>
 
 <div class="controls">
-
-<div>
-<label>Text Color</label>
-<input type="color" id="colorPicker" value="#3b82f6">
-</div>
-
-<div>
-<label>Font Size</label>
+<input type="color" id="colorPicker" value="#ffffff">
 <input type="range" id="fontSize" min="20" max="60" value="28">
 </div>
 
-<div>
-<label>Background Color</label>
-<input type="color" id="bgColor" value="#000000">
-</div>
-
-<div>
-<label>Upload Background Image</label>
-<input type="file" id="bgImage">
-</div>
-
-</div>
-
-<div class="buttons">
-<button onclick="startVideo()">Generate</button>
+<button onclick="startVideo()">Generate Video</button>
 <button onclick="downloadVideo()">Download</button>
-</div>
 
 <p id="progress">Idle...</p>
 
 <canvas id="canvas" width="480" height="800"></canvas>
 
+<audio id="bgMusic" loop>
+<source src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_flute.mp3">
+</audio>
+
 </div>
+
 <script>
+// 🔐 SUPABASE
+const supabaseClient = supabase.createClient(
+"YOUR_URL",https://cmxlfxqtrguuzpqdgcxv.supabase.co
+"YOUR_ANON_KEY"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNteGxmeHF0cmd1dXpwcWRnY3h2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MzE0NDYsImV4cCI6MjA5MDAwNzQ0Nn0.Hl0S5yJnJEqvrxXSFt_YMjrKUKerNjUHb2ZvI7LfOC0
+);
+
+// AUTH
+async function signup(){
+await supabaseClient.auth.signUp({
+email: email.value,
+password: password.value
+});
+alert("Account created");
+}
+
+async function login(){
+await supabaseClient.auth.signInWithPassword({
+email: email.value,
+password: password.value
+});
+alert("Logged in");
+}
+
+// SAVE
+async function saveProject(text){
+let user = await supabaseClient.auth.getUser();
+
+if(!user.data.user){
+alert("Login first!");
+return;
+}
+
+await supabaseClient.from("projects").insert({
+user_id: user.data.user.id,
+script: text
+});
+}
+
+// 🎬 VIDEO SYSTEM
 let canvas = document.getElementById("canvas");
 let ctx = canvas.getContext("2d");
 
-let chunks = [];
 let mediaRecorder;
-let currentImage = null;
+let chunks = [];
+let currentVisual = null;
 
-// FETCH IMAGE FROM FREE API
-async function getImage(query){
-    try{
-        let url = `https://source.unsplash.com/800x600/?${query}`;
-        let img = new Image();
-        img.crossOrigin = "anonymous";
-        img.src = url;
-
-        await new Promise(res => img.onload = res);
-        return img;
-    }catch{
-        return null;
-    }
+// AI IMAGE
+async function getAIImage(prompt){
+let img = new Image();
+img.crossOrigin = "anonymous";
+img.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
+await new Promise(res=>img.onload=res);
+return img;
 }
 
 // SPEECH
 function speak(text){
-    return new Promise(resolve=>{
-        let speech = new SpeechSynthesisUtterance(text);
-        speech.onend = resolve;
-        speechSynthesis.speak(speech);
-    });
+return new Promise(resolve=>{
+let speech = new SpeechSynthesisUtterance(text);
+speech.onend = resolve;
+speechSynthesis.speak(speech);
+});
 }
 
 // DRAW
-function drawScene(text, progress){
+function drawScene(text){
+if(currentVisual){
+ctx.drawImage(currentVisual,0,0,canvas.width,canvas.height);
+}else{
+ctx.fillStyle = "#000";
+ctx.fillRect(0,0,canvas.width,canvas.height);
+}
 
-    if(currentImage){
-        ctx.drawImage(currentImage,0,0,canvas.width,canvas.height);
-    }else{
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0,0,canvas.width,canvas.height);
-    }
+ctx.fillStyle = document.getElementById("colorPicker").value;
+ctx.font = document.getElementById("fontSize").value+"px Arial";
 
-    ctx.fillStyle = "white";
-    ctx.font = "28px Arial";
-
-    wrapText(text, 40, 600, 400, 40);
+wrapText(text,40,650,400,40);
 }
 
 // TEXT WRAP
-function wrapText(text, x, y, maxWidth, lineHeight){
-    let words = text.split(" ");
-    let line = "";
+function wrapText(text,x,y,maxWidth,lineHeight){
+let words=text.split(" ");
+let line="";
 
-    for(let n=0;n<words.length;n++){
-        let testLine = line + words[n] + " ";
-        let width = ctx.measureText(testLine).width;
+for(let n=0;n<words.length;n++){
+let test=line+words[n]+" ";
+let width=ctx.measureText(test).width;
 
-        if(width > maxWidth && n>0){
-            ctx.fillText(line, x, y);
-            line = words[n] + " ";
-            y += lineHeight;
-        }else{
-            line = testLine;
-        }
-    }
-    ctx.fillText(line, x, y);
+if(width>maxWidth && n>0){
+ctx.fillText(line,x,y);
+line=words[n]+" ";
+y+=lineHeight;
+}else{
+line=test;
+}
+}
+ctx.fillText(line,x,y);
 }
 
-// START VIDEO
+// START
 async function startVideo(){
 
-    chunks = [];
-    let input = document.getElementById("text").value;
-    let scenes = input.split(".");
-    let progress = document.getElementById("progress");
+chunks=[];
+let input=document.getElementById("text").value;
+let scenes=input.split(".");
+let progress=document.getElementById("progress");
 
-    let stream = canvas.captureStream(30);
+document.getElementById("bgMusic").play();
 
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = e => chunks.push(e.data);
-    mediaRecorder.start();
+let stream=canvas.captureStream(30);
 
-    for(let i=0;i<scenes.length;i++){
+mediaRecorder=new MediaRecorder(stream);
+mediaRecorder.ondataavailable=e=>chunks.push(e.data);
+mediaRecorder.start();
 
-        let scene = scenes[i].trim();
-        if(!scene) continue;
+for(let i=0;i<scenes.length;i++){
 
-        progress.innerText = `Loading visuals for: ${scene}`;
+let scene=scenes[i].trim();
+if(!scene) continue;
 
-        // GET REAL IMAGE
-        currentImage = await getImage(scene);
+progress.innerText="Loading: "+scene;
 
-        let speaking = speak(scene);
+// GET AI IMAGE
+currentVisual=await getAIImage(scene);
 
-        for(let t=0;t<80;t++){
-            drawScene(scene, t/80);
-            await new Promise(r=>setTimeout(r,40));
-        }
+let speaking=speak(scene);
 
-        await speaking;
-    }
+for(let t=0;t<70;t++){
+drawScene(scene);
+await new Promise(r=>setTimeout(r,40));
+}
 
-    mediaRecorder.stop();
-    progress.innerText = "Done ✅";
+await speaking;
+}
+
+mediaRecorder.stop();
+document.getElementById("bgMusic").pause();
+progress.innerText="Done ✅";
+
+saveProject(input);
 }
 
 // DOWNLOAD
 function downloadVideo(){
-    mediaRecorder.onstop = ()=>{
-        let blob = new Blob(chunks,{type:"video/webm"});
-        let url = URL.createObjectURL(blob);
+mediaRecorder.onstop=()=>{
+let blob=new Blob(chunks,{type:"video/webm"});
+let url=URL.createObjectURL(blob);
 
-        let a = document.createElement("a");
-        a.href = url;
-        a.download = "video.webm";
-        a.click();
-    }
+let a=document.createElement("a");
+a.href=url;
+a.download="video.webm";
+a.click();
+};
 }
-    </script>
-    
+</script>
 
 </body>
 </html>
