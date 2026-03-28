@@ -147,18 +147,40 @@ text-align:center;
 </audio>
 
 </div>
-
 <script>
 
-/* ================= CONFIG ================= */
+/* ================= GLOBAL STATE ================= */
 
-const SUPABASE_URL = "YOUR_URL";
-const SUPABASE_KEY = "YOUR_KEY";
+let scenes = [];
+let currentSceneIndex = 0;
+let isPlaying = false;
 
-const supabaseClient = supabase.createClient(
-SUPABASE_URL,
-SUPABASE_KEY
-);
+let canvas = document.getElementById("canvas");
+let ctx = canvas.getContext("2d");
+
+let recorder;
+let chunks = [];
+
+/* ================= SETTINGS ================= */
+
+const settings = {
+textColor: "#ffffff",
+fontSize: 28,
+bgColor: "#000000",
+speed: 40,
+showSubtitle: true,
+musicVolume: 0.5
+};
+
+/* ================= UI HELPERS ================= */
+
+function updateProgress(text){
+document.getElementById("progress").innerText = text;
+}
+
+function getInputValue(id){
+return document.getElementById(id).value;
+}
 
 /* ================= AUTH ================= */
 
@@ -170,7 +192,7 @@ password:password.value
 });
 alert("Signed Up");
 }catch(e){
-alert(e.message);
+alert("Error: "+e.message);
 }
 }
 
@@ -182,33 +204,44 @@ password:password.value
 });
 alert("Logged In");
 }catch(e){
-alert(e.message);
+alert("Error: "+e.message);
 }
 }
 
 /* ================= STORAGE ================= */
 
 async function saveProject(text){
+try{
 let user = await supabaseClient.auth.getUser();
 
 if(!user.data.user){
-alert("Login first");
+alert("Login required");
 return;
 }
 
 await supabaseClient.from("projects").insert({
 user_id:user.data.user.id,
-script:text
+script:text,
+created_at:new Date()
 });
+
+}catch(e){
+console.log("Save error",e);
+}
 }
 
 /* ================= SCENES ================= */
 
-let scenes = [];
-
 function generateScenes(){
-let input = document.getElementById("text").value;
-scenes = input.split(".");
+let input = getInputValue("text");
+
+if(!input){
+alert("Enter text first");
+return;
+}
+
+scenes = input.split(".").map(s=>s.trim()).filter(Boolean);
+
 renderScenes();
 }
 
@@ -216,18 +249,54 @@ function renderScenes(){
 let list = document.getElementById("sceneList");
 list.innerHTML = "";
 
-scenes.forEach(s=>{
-if(!s.trim()) return;
+scenes.forEach((scene,index)=>{
 
 let div = document.createElement("div");
 div.className="scene";
-div.innerText = s;
+div.innerText = scene;
+
+div.onclick = ()=>previewScene(index);
+
+div.ondblclick = ()=>{
+let newText = prompt("Edit scene:",scene);
+if(newText){
+scenes[index]=newText;
+renderScenes();
+}
+};
 
 list.appendChild(div);
+
 });
 }
 
-/* ================= AI VISUAL ================= */
+/* ================= SCENE CONTROL ================= */
+
+function previewScene(index){
+currentSceneIndex = index;
+drawTextOnly(scenes[index]);
+}
+
+function deleteScene(index){
+scenes.splice(index,1);
+renderScenes();
+}
+
+function moveSceneUp(index){
+if(index>0){
+[scenes[index],scenes[index-1]]=[scenes[index-1],scenes[index]];
+renderScenes();
+}
+}
+
+function moveSceneDown(index){
+if(index<scenes.length-1){
+[scenes[index],scenes[index+1]]=[scenes[index+1],scenes[index]];
+renderScenes();
+}
+}
+
+/* ================= VISUAL ================= */
 
 async function getVisual(prompt){
 try{
@@ -235,7 +304,10 @@ let img = new Image();
 img.crossOrigin="anonymous";
 img.src = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
 
-await new Promise(res=>img.onload=res);
+await new Promise(res=>{
+img.onload = res;
+img.onerror = res;
+});
 
 return img;
 }catch(e){
@@ -243,41 +315,83 @@ return null;
 }
 }
 
-/* ================= VIDEO ENGINE ================= */
+/* ================= DRAW ================= */
 
-let canvas = document.getElementById("canvas");
-let ctx = canvas.getContext("2d");
-
-let recorder;
-let chunks=[];
-
-/* DRAW */
-function draw(img){
-if(img){
-ctx.drawImage(img,0,0,canvas.width,canvas.height);
-}else{
-ctx.fillStyle="#000";
+function clearCanvas(){
+ctx.fillStyle = settings.bgColor;
 ctx.fillRect(0,0,canvas.width,canvas.height);
 }
+
+function draw(img){
+clearCanvas();
+
+if(img){
+ctx.drawImage(img,0,0,canvas.width,canvas.height);
+}
 }
 
-/* SPEECH */
+function drawTextOnly(text){
+clearCanvas();
+
+ctx.fillStyle = settings.textColor;
+ctx.font = settings.fontSize+"px Arial";
+
+wrapText(text,40,400,400,40);
+}
+
+function wrapText(text,x,y,maxWidth,lineHeight){
+let words=text.split(" ");
+let line="";
+
+for(let n=0;n<words.length;n++){
+let test=line+words[n]+" ";
+let width=ctx.measureText(test).width;
+
+if(width>maxWidth && n>0){
+ctx.fillText(line,x,y);
+line=words[n]+" ";
+y+=lineHeight;
+}else{
+line=test;
+}
+}
+ctx.fillText(line,x,y);
+}
+
+/* ================= SPEECH ================= */
+
 function speak(text){
 return new Promise(resolve=>{
+try{
 let s = new SpeechSynthesisUtterance(text);
+
+if(settings.showSubtitle){
 document.getElementById("subtitle").innerText = text;
+}else{
+document.getElementById("subtitle").innerText = "";
+}
 
 s.onend = resolve;
 speechSynthesis.speak(s);
+}catch(e){
+resolve();
+}
 });
 }
 
-/* MAIN VIDEO */
+/* ================= VIDEO ================= */
+
 async function startVideo(){
 
-chunks=[];
+if(isPlaying) return;
 
-let progress = document.getElementById("progress");
+isPlaying = true;
+chunks = [];
+
+try{
+
+updateProgress("Starting...");
+document.getElementById("music").volume = settings.musicVolume;
 document.getElementById("music").play();
 
 let stream = canvas.captureStream(30);
@@ -288,10 +402,11 @@ recorder.start();
 
 for(let i=0;i<scenes.length;i++){
 
-let scene = scenes[i].trim();
-if(!scene) continue;
+if(!isPlaying) break;
 
-progress.innerText = "Processing: "+scene;
+let scene = scenes[i];
+
+updateProgress("Scene "+(i+1)+"/"+scenes.length);
 
 let img = await getVisual(scene);
 
@@ -299,7 +414,7 @@ let speech = speak(scene);
 
 for(let t=0;t<60;t++){
 draw(img);
-await new Promise(r=>setTimeout(r,40));
+await new Promise(r=>setTimeout(r,settings.speed));
 }
 
 await speech;
@@ -308,39 +423,96 @@ await speech;
 recorder.stop();
 document.getElementById("music").pause();
 
-progress.innerText = "Done ✅";
+updateProgress("Done ✅");
+saveProject(getInputValue("text"));
 
-saveProject(document.getElementById("text").value);
+}catch(e){
+alert("Error: "+e.message);
+}
+
+isPlaying = false;
+}
+
+/* ================= STOP ================= */
+
+function stopVideo(){
+isPlaying = false;
+speechSynthesis.cancel();
+document.getElementById("music").pause();
+updateProgress("Stopped");
 }
 
 /* ================= DOWNLOAD ================= */
 
 function downloadVideo(){
-recorder.onstop = ()=>{
-let blob = new Blob(chunks);
-let url = URL.createObjectURL(blob);
+if(!recorder){
+alert("No video yet");
+return;
+}
 
-let a = document.createElement("a");
-a.href = url;
-a.download = "video.webm";
+recorder.onstop = ()=>{
+let blob=new Blob(chunks);
+let url=URL.createObjectURL(blob);
+
+let a=document.createElement("a");
+a.href=url;
+a.download="video.webm";
 a.click();
 };
 }
 
+/* ================= SETTINGS CONTROLS ================= */
+
+function changeTextColor(val){
+settings.textColor = val;
+}
+
+function changeFontSize(val){
+settings.fontSize = val;
+}
+
+function changeSpeed(val){
+settings.speed = val;
+}
+
+function toggleSubtitle(){
+settings.showSubtitle = !settings.showSubtitle;
+}
+
 /* ================= EXTRA FEATURES ================= */
 
-/* future expansion placeholders */
+function applyFilters(){
+console.log("Filters coming soon");
+}
 
-function applyFilters(){}
-function addTransitions(){}
-function exportHD(){}
-function uploadYouTube(){}
-function connectRunway(){}
-function connectPika(){}
+function addTransitions(){
+console.log("Transitions coming soon");
+}
 
-/* ================= END ================= */
+function exportHD(){
+console.log("HD export coming soon");
+}
+
+function uploadYouTube(){
+console.log("YouTube upload requires backend");
+}
+
+function connectRunway(){
+console.log("Requires paid API");
+}
+
+function connectPika(){
+console.log("Requires paid API");
+}
+
+/* ================= INIT ================= */
+
+window.onload = ()=>{
+updateProgress("Ready 🚀");
+};
 
 </script>
+
 
 </body>
 </html>
