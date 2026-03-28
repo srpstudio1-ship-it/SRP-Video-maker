@@ -140,35 +140,32 @@ canvas{
 <canvas id="canvas" width="480" height="800"></canvas>
 
 </div>
-
 <script>
 let canvas = document.getElementById("canvas");
 let ctx = canvas.getContext("2d");
 
 let chunks = [];
 let mediaRecorder;
-let bgImg = null;
+let currentImage = null;
 
-// LOAD IMAGE
-document.getElementById("bgImage").addEventListener("change", e=>{
-    let file = e.target.files[0];
-    if(file){
-        let reader = new FileReader();
-        reader.onload = function(ev){
-            bgImg = new Image();
-            bgImg.src = ev.target.result;
-        }
-        reader.readAsDataURL(file);
+// FETCH IMAGE FROM FREE API
+async function getImage(query){
+    try{
+        let url = `https://source.unsplash.com/800x600/?${query}`;
+        let img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = url;
+
+        await new Promise(res => img.onload = res);
+        return img;
+    }catch{
+        return null;
     }
-});
-
-function sleep(ms){
-    return new Promise(r=>setTimeout(r,ms));
 }
 
 // SPEECH
 function speak(text){
-    return new Promise((resolve)=>{
+    return new Promise(resolve=>{
         let speech = new SpeechSynthesisUtterance(text);
         speech.onend = resolve;
         speechSynthesis.speak(speech);
@@ -178,25 +175,17 @@ function speak(text){
 // DRAW
 function drawScene(text, progress){
 
-    let color = document.getElementById("colorPicker").value;
-    let fontSize = document.getElementById("fontSize").value;
-    let bgColor = document.getElementById("bgColor").value;
-
-    // background
-    if(bgImg){
-        ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
+    if(currentImage){
+        ctx.drawImage(currentImage,0,0,canvas.width,canvas.height);
     }else{
-        ctx.fillStyle = bgColor;
+        ctx.fillStyle = "#000";
         ctx.fillRect(0,0,canvas.width,canvas.height);
     }
 
-    // text
-    ctx.fillStyle = color;
-    ctx.font = fontSize+"px Arial";
+    ctx.fillStyle = "white";
+    ctx.font = "28px Arial";
 
-    let y = 300 + progress*80;
-
-    wrapText(text, 40, y, 400, 40);
+    wrapText(text, 40, 600, 400, 40);
 }
 
 // TEXT WRAP
@@ -238,13 +227,16 @@ async function startVideo(){
         let scene = scenes[i].trim();
         if(!scene) continue;
 
-        progress.innerText = `Processing ${i+1}/${scenes.length}`;
+        progress.innerText = `Loading visuals for: ${scene}`;
+
+        // GET REAL IMAGE
+        currentImage = await getImage(scene);
 
         let speaking = speak(scene);
 
-        for(let t=0;t<60;t++){
-            drawScene(scene, t/60);
-            await sleep(40);
+        for(let t=0;t<80;t++){
+            drawScene(scene, t/80);
+            await new Promise(r=>setTimeout(r,40));
         }
 
         await speaking;
@@ -266,7 +258,8 @@ function downloadVideo(){
         a.click();
     }
 }
-</script>
+    </script>
+    
 
 </body>
 </html>
