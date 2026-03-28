@@ -8,98 +8,100 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-
 body{
-    font-family:Arial;
-    background:#0f172a;
-    color:white;
+margin:0;
+font-family:Arial;
+background:#0f172a;
+color:white;
 }
 
 /* HEADER */
 .header{
-    padding:15px;
-    text-align:center;
-    background:#020617;
-    font-size:20px;
+padding:12px;
+text-align:center;
+background:#020617;
+font-size:18px;
 }
 
 /* AUTH */
 .auth{
-    padding:10px;
-    display:flex;
-    flex-direction:column;
-    gap:8px;
+padding:10px;
+display:flex;
+gap:5px;
 }
 
 .auth input{
-    padding:10px;
-    border-radius:8px;
-    border:none;
+flex:1;
+padding:8px;
+border-radius:6px;
+border:none;
 }
 
 /* MAIN */
 .container{
-    padding:10px;
+padding:10px;
 }
 
 /* TEXT */
 textarea{
-    width:100%;
-    height:100px;
-    border-radius:10px;
-    padding:10px;
+width:100%;
+height:100px;
+border-radius:10px;
+padding:10px;
 }
 
-/* BUTTONS */
+/* BUTTON */
 button{
-    padding:12px;
-    border:none;
-    border-radius:10px;
-    background:#3b82f6;
-    color:white;
-    margin-top:8px;
+padding:10px;
+border:none;
+border-radius:10px;
+background:#3b82f6;
+color:white;
+margin-top:5px;
+width:100%;
 }
 
 /* REELS PREVIEW */
-.reels{
-    display:flex;
-    overflow-x:auto;
-    gap:10px;
-    margin-top:10px;
-}
-
-.scene{
-    min-width:120px;
-    height:200px;
-    background:#111;
-    border-radius:10px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-size:12px;
-    padding:5px;
+.preview{
+width:100%;
+max-width:400px;
+margin:auto;
+border-radius:20px;
+overflow:hidden;
+background:black;
+position:relative;
 }
 
 /* CANVAS */
 canvas{
-    width:100%;
-    max-width:400px;
-    margin:10px auto;
-    display:block;
-    border-radius:10px;
-    background:black;
+width:100%;
 }
 
-/* SUBTITLES */
-#subtitle{
-    position:absolute;
-    bottom:60px;
-    width:100%;
-    text-align:center;
-    font-size:20px;
-    color:white;
-    text-shadow:0 0 10px black;
+/* SUBTITLE */
+.subtitle{
+position:absolute;
+bottom:20px;
+width:100%;
+text-align:center;
+font-size:18px;
+background:rgba(0,0,0,0.5);
+padding:5px;
+}
+
+/* SCENES */
+.sceneList{
+margin-top:10px;
+display:flex;
+overflow:auto;
+gap:5px;
+}
+
+.sceneCard{
+background:#1e293b;
+padding:8px;
+border-radius:8px;
+min-width:100px;
+font-size:12px;
 }
 </style>
 </head>
@@ -108,39 +110,39 @@ canvas{
 
 <div class="header">🎬 SRP AI Video Studio</div>
 
-<!-- AUTH -->
 <div class="auth">
 <input id="email" placeholder="Email">
 <input id="password" type="password" placeholder="Password">
-<button onclick="signup()">Sign Up</button>
-<button onclick="login()">Login</button>
 </div>
 
 <div class="container">
 
-<textarea id="text" placeholder="Enter script..."></textarea>
+<button onclick="signup()">Sign Up</button>
+<button onclick="login()">Login</button>
+
+<textarea id="text" placeholder="Write story..."></textarea>
 
 <button onclick="generateScenes()">Generate Scenes</button>
 <button onclick="startVideo()">Create Video</button>
+<button onclick="downloadVideo()">Download</button>
 
-<div class="reels" id="reels"></div>
+<div class="sceneList" id="sceneList"></div>
 
-<p id="progress">Idle...</p>
-
-<div style="position:relative">
+<div class="preview">
 <canvas id="canvas" width="480" height="800"></canvas>
-<div id="subtitle"></div>
+<div class="subtitle" id="subtitle"></div>
 </div>
 
-<audio id="bgMusic" loop>
+<p id="progress"></p>
+
+<audio id="music" loop>
 <source src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_flute.mp3">
 </audio>
 
 </div>
 
 <script>
-
-// 🔐 SUPABASE (YOUR KEYS)
+// 🔐 SUPABASE (YOUR KEY USED)
 const supabaseClient = supabase.createClient(
 "https://cmxlfxqtrguuzpqdgcxv.supabase.co",
 "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
@@ -149,24 +151,24 @@ const supabaseClient = supabase.createClient(
 // AUTH
 async function signup(){
 await supabaseClient.auth.signUp({
-email: email.value,
-password: password.value
+email:email.value,
+password:password.value
 });
-alert("Account created");
+alert("Signed up");
 }
 
 async function login(){
 await supabaseClient.auth.signInWithPassword({
-email: email.value,
-password: password.value
+email:email.value,
+password:password.value
 });
 alert("Logged in");
 }
 
 // SAVE
 async function saveProject(text){
-let user = await supabaseClient.auth.getUser();
-if(!user.data.user) return;
+let user=await supabaseClient.auth.getUser();
+if(!user.data.user)return;
 
 await supabaseClient.from("projects").insert({
 user_id:user.data.user.id,
@@ -174,42 +176,45 @@ script:text
 });
 }
 
-// 🎬 SYSTEM
+// 🎬 CORE
 let canvas=document.getElementById("canvas");
 let ctx=canvas.getContext("2d");
 
 let scenes=[];
+let chunks=[];
+let recorder;
 
-// GENERATE SCENES
+// SPLIT
 function generateScenes(){
 let input=document.getElementById("text").value;
-scenes=input.split(".").filter(s=>s.trim());
+scenes=input.split(".");
+let list=document.getElementById("sceneList");
+list.innerHTML="";
 
-let reels=document.getElementById("reels");
-reels.innerHTML="";
-
-scenes.forEach(scene=>{
+scenes.forEach(s=>{
+if(!s.trim())return;
 let div=document.createElement("div");
-div.className="scene";
-div.innerText=scene;
-reels.appendChild(div);
+div.className="sceneCard";
+div.innerText=s;
+list.appendChild(div);
 });
 }
 
 // AI IMAGE
-async function getAI(prompt){
+async function getVisual(prompt){
 let img=new Image();
 img.crossOrigin="anonymous";
-img.src=`https://image.pollinations.ai/prompt/${encodeURIComponent(prompt+" cinematic")}`;
+img.src=`https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
 await new Promise(r=>img.onload=r);
 return img;
 }
 
-// SPEECH
+// SPEECH + SUBTITLE
 function speak(text){
-return new Promise(resolve=>{
+return new Promise(res=>{
 let s=new SpeechSynthesisUtterance(text);
-s.onend=resolve;
+document.getElementById("subtitle").innerText=text;
+s.onend=res;
 speechSynthesis.speak(s);
 });
 }
@@ -222,32 +227,48 @@ ctx.drawImage(img,0,0,canvas.width,canvas.height);
 // VIDEO
 async function startVideo(){
 
-document.getElementById("bgMusic").play();
+document.getElementById("music").play();
 
-for(let i=0;i<scenes.length;i++){
+let stream=canvas.captureStream(30);
+recorder=new MediaRecorder(stream);
+recorder.ondataavailable=e=>chunks.push(e.data);
+recorder.start();
 
-let scene=scenes[i];
-document.getElementById("progress").innerText="Scene "+(i+1);
+for(let s of scenes){
 
-let img=await getAI(scene);
+if(!s.trim())continue;
+
+document.getElementById("progress").innerText=s;
+
+let img=await getVisual(s);
+
+let speech=speak(s);
+
+for(let i=0;i<60;i++){
 draw(img);
-
-// SUBTITLE
-document.getElementById("subtitle").innerText=scene;
-
-await speak(scene);
-
-// WAIT
-await new Promise(r=>setTimeout(r,500));
+await new Promise(r=>setTimeout(r,40));
 }
 
-document.getElementById("bgMusic").pause();
+await speech;
+}
 
+recorder.stop();
+document.getElementById("music").pause();
 saveProject(document.getElementById("text").value);
-
-document.getElementById("progress").innerText="Done ✅";
 }
 
+// DOWNLOAD
+function downloadVideo(){
+recorder.onstop=()=>{
+let blob=new Blob(chunks);
+let url=URL.createObjectURL(blob);
+
+let a=document.createElement("a");
+a.href=url;
+a.download="video.webm";
+a.click();
+};
+}
 </script>
 
 </body>
